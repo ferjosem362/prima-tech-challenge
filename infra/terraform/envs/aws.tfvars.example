@@ -1,0 +1,23 @@
+# Real-AWS profile. Copy to aws.tfvars and fill in.
+#   terraform apply -var-file=envs/aws.tfvars
+environment                 = "prod"
+aws_region                  = "eu-west-1"
+use_localstack              = false
+s3_bucket_suffix_account_id = true
+force_destroy_bucket        = false
+
+enable_point_in_time_recovery = true
+
+# IRSA: paste the issuer of an existing cluster.
+#   aws eks describe-cluster --name <cluster> \
+#     --query "cluster.identity.oidc.issuer" --output text
+enable_irsa                = true
+eks_oidc_issuer_url        = "https://oidc.eks.eu-west-1.amazonaws.com/id/REPLACE_ME"
+create_oidc_provider       = true
+kubernetes_namespace       = "prima"
+kubernetes_service_account = "prima-api"
+
+enable_eks_platform_roles = true
+
+enable_github_oidc = true
+github_repository  = "your-user/prima-tech-challenge"

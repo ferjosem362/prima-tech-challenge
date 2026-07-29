@@ -1,0 +1,46 @@
+cd ~/prima-tech-challenge
+cat > .gitignore << 'GITEOF'
+# --- Python ---------------------------------------------------------------
+.venv/
+__pycache__/
+*.py[cod]
+.env
+.coverage
+coverage.xml
+htmlcov/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+*.egg-info/
+
+# --- Terraform ------------------------------------------------------------
+# Provider binaries: hundreds of MB, re-downloaded by `terraform init`.
+**/.terraform/*
+# State can contain secrets and must live in a remote backend, never in git.
+*.tfstate
+*.tfstate.*
+crash.log
+crash.*.log
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+.terraformrc
+terraform.rc
+# Real-account variables (envs/localstack.tfvars IS committed on purpose).
+infra/terraform/envs/aws.tfvars
+#
+# NOTE: .terraform.lock.hcl is deliberately NOT ignored. Committing it pins
+# provider versions and checksums, which is what makes a plan reproducible
+# across machines and CI.
+
+# --- Helm / Kubernetes ----------------------------------------------------
+*.tgz
+values.generated.yaml
+kubeconfig
+
+# --- Editors / OS ---------------------------------------------------------
+.idea/
+.vscode/
+.DS_Store
+GITEOF

@@ -1,0 +1,38 @@
+{{- if .Values.networkPolicy.enabled }}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "prima-api.fullname" . }}
+  labels:
+    {{- include "prima-api.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "prima-api.selectorLabels" . | nindent 6 }}
+  policyTypes: [Ingress, Egress]
+  ingress:
+    # Only the ingress controller (and anything explicitly listed) may reach
+    # the API port; nothing else in the cluster can talk to it directly.
+    - from:
+        {{- range .Values.networkPolicy.ingressFromNamespaces }}
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ . }}
+        {{- end }}
+        - podSelector: {} # same namespace (e.g. the helm test pod)
+      ports:
+        - port: {{ .Values.service.targetPort }}
+          protocol: TCP
+  egress:
+    # Default-deny egress with an explicit allow-list: a compromised pod cannot
+    # exfiltrate data to an arbitrary host. DNS and HTTPS (AWS APIs) only.
+    {{- range .Values.networkPolicy.allowedEgressPorts }}
+    - ports:
+        - port: {{ . }}
+          protocol: TCP
+        {{- if eq (int .) 53 }}
+        - port: 53
+          protocol: UDP
+        {{- end }}
+    {{- end }}
+{{- end }}

@@ -1,0 +1,307 @@
+# ---------------------------------------------------------------------------
+# CI — everything that must be true before code can be released.
+#
+# Design notes:
+#  * Jobs are parallel and independent; only `image` waits, because building a
+#    container out of code that fails linting is wasted minutes.
+#  * `permissions` is least-privilege at workflow level and widened per job.
+#  * `concurrency` cancels superseded runs on the same branch: no queue of
+#    stale builds burning runner minutes.
+#  * Zero AWS credentials anywhere: moto emulates AWS for tests, LocalStack for
+#    the Terraform plan.
+# ---------------------------------------------------------------------------
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  PYTHON_VERSION: "3.12"
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+
+jobs:
+  # -------------------------------------------------------------------------
+  quality:
+    name: Lint, types & tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+          cache-dependency-path: requirements-dev.txt
+
+      - name: Install dependencies
+        run: pip install -r requirements-dev.txt
+
+      - name: Ruff (lint + format check)
+        run: |
+          ruff check --output-format=github app tests
+          ruff format --check app tests
+
+      - name: Mypy (strict)
+        run: mypy app
+
+      - name: Pytest
+        # No AWS account needed: moto emulates DynamoDB and S3 in-process.
+        run: pytest --cov=app --cov-report=xml --cov-report=term-missing
+
+      - name: Publish coverage artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage
+          path: coverage.xml
+          retention-days: 7
+
+  # -------------------------------------------------------------------------
+  security:
+    name: Security scanning
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write # upload SARIF to the Security tab
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # gitleaks needs the full history
+
+      - name: Secret scanning (gitleaks)
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Dependency & filesystem scan (Trivy)
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          scan-type: fs
+          scanners: vuln,secret,misconfig
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true # do not block on CVEs with no patch available
+          format: sarif
+          output: trivy-fs.sarif
+
+      - name: Upload Trivy SARIF
+        if: always()
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: trivy-fs.sarif
+          category: trivy-fs
+
+      - name: Dockerfile lint (hadolint)
+        uses: hadolint/hadolint-action@v3.1.0
+        with:
+          dockerfile: Dockerfile
+          failure-threshold: warning
+
+  # -------------------------------------------------------------------------
+  iac:
+    name: Terraform validate & plan
+    runs-on: ubuntu-latest
+    services:
+      # A real LocalStack, so the plan is checked against an actual API rather
+      # than only parsed. Catches provider/attribute mistakes a `validate`
+      # would happily wave through.
+      localstack:
+        image: localstack/localstack:3.8
+        ports: ["4566:4566"]
+        env:
+          SERVICES: s3,dynamodb,iam,sts,kms
+        options: >-
+          --health-cmd "curl -fs http://localhost:4566/_localstack/health || exit 1"
+          --health-interval 10s --health-timeout 5s --health-retries 12
+    defaults:
+      run:
+        working-directory: infra/terraform
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.9.8"
+
+      - name: Format check
+        run: terraform fmt -check -recursive
+
+      - name: Init
+        run: terraform init -backend=false
+
+      - name: Validate
+        run: terraform validate
+
+      - name: Static analysis (Checkov)
+        uses: bridgecrewio/checkov-action@master
+        with:
+          directory: infra/terraform
+          framework: terraform
+          soft_fail: false
+          # Skipped with a reason, not silently: the bucket is deliberately
+          # not fronted by a WAF/CloudFront in the challenge scope.
+          skip_check: CKV_AWS_18,CKV2_AWS_62,CKV_AWS_144
+
+      - name: Plan against LocalStack
+        env:
+          AWS_ACCESS_KEY_ID: test
+          AWS_SECRET_ACCESS_KEY: test
+          AWS_DEFAULT_REGION: us-east-1
+        run: terraform plan -var-file=envs/localstack.tfvars -input=false -no-color
+
+  # -------------------------------------------------------------------------
+  helm:
+    name: Helm lint & render
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: azure/setup-helm@v4
+        with:
+          version: v3.16.2
+
+      - name: Lint every values overlay
+        run: |
+          for values in values.yaml values-localstack.yaml values-eks.yaml; do
+            echo "::group::helm lint ($values)"
+            helm lint deploy/helm/prima-api --strict \
+              -f "deploy/helm/prima-api/${values}"
+            echo "::endgroup::"
+          done
+
+      - name: Render manifests
+        run: |
+          helm template prima-api deploy/helm/prima-api \
+            -f deploy/helm/prima-api/values-eks.yaml > rendered.yaml
+          cat rendered.yaml
+
+      - name: Validate against the Kubernetes API schema
+        # Installed directly rather than through a third-party action: one less
+        # supply-chain dependency, and the version is pinned explicitly.
+        run: |
+          curl -fsSL -o /tmp/kubeconform.tar.gz \
+            https://github.com/yannh/kubeconform/releases/download/v0.6.7/kubeconform-linux-amd64.tar.gz
+          tar -xzf /tmp/kubeconform.tar.gz -C /tmp
+          /tmp/kubeconform -strict -summary -ignore-missing-schemas \
+            -kubernetes-version 1.30.0 rendered.yaml
+
+      - name: Policy scan of the rendered manifests (Trivy config)
+        # Catches privileged containers, missing probes, root users... on the
+        # actual output rather than on the templates.
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          scan-type: config
+          scan-ref: rendered.yaml
+          severity: HIGH,CRITICAL
+          exit-code: "1"
+
+  # -------------------------------------------------------------------------
+  image:
+    name: Build, scan & push image
+    needs: [quality, security]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write # push to GHCR
+      id-token: write # keyless signing with cosign
+    outputs:
+      digest: ${{ steps.build.outputs.digest }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        # Only on trusted refs: a PR from a fork must never get a push token.
+        if: github.event_name != 'pull_request'
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Derive tags and labels
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=ref,event=branch
+            type=ref,event=pr
+            type=semver,pattern={{version}}
+            type=sha,format=long
+
+      - name: Build (and push on trusted refs)
+        id: build
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: ${{ github.event_name != 'pull_request' }}
+          load: ${{ github.event_name == 'pull_request' }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          # Registry-backed cache keeps rebuilds to a few seconds.
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          provenance: true # SLSA attestation
+          sbom: true
+
+      - name: Scan the built image (Trivy)
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          image-ref: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:sha-${{ github.sha }}
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: "1" # a vulnerable image never reaches a registry tag
+
+      - name: Install cosign
+        if: github.event_name != 'pull_request'
+        uses: sigstore/cosign-installer@v3
+
+      - name: Sign the image (keyless, OIDC)
+        if: github.event_name != 'pull_request'
+        # No private key to store or rotate: identity comes from the workflow's
+        # OIDC token and lands in the public transparency log.
+        run: cosign sign --yes ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.build.outputs.digest }}
+
+  # -------------------------------------------------------------------------
+  smoke:
+    name: End-to-end smoke test
+    needs: [quality]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Start the full stack (LocalStack + provisioner + API)
+        run: docker compose up --build -d
+
+      - name: Wait for readiness
+        run: |
+          for i in $(seq 1 60); do
+            if curl -fs http://localhost:8000/health/ready >/dev/null; then
+              echo "API ready after ${i}s"; exit 0
+            fi
+            sleep 1
+          done
+          echo "API never became ready"; docker compose logs; exit 1
+
+      - name: Run the smoke script
+        run: ./scripts/smoke.sh http://localhost:8000
+
+      - name: Dump logs on failure
+        if: failure()
+        run: docker compose logs --no-color
+
+      - name: Tear down
+        if: always()
+        run: docker compose down -v

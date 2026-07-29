@@ -1,0 +1,43 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: {{ include "prima-api.fullname" . }}-test
+  labels:
+    {{- include "prima-api.labels" . | nindent 4 }}
+  annotations:
+    # `helm test` runs this after the release converges; the hook deletes the
+    # pod on success so repeated runs stay clean.
+    helm.sh/hook: test
+    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+spec:
+  restartPolicy: Never
+  securityContext:
+    runAsNonRoot: true
+    runAsUser: 1000
+    seccompProfile:
+      type: RuntimeDefault
+  containers:
+    - name: smoke
+      image: curlimages/curl:8.10.1
+      securityContext:
+        allowPrivilegeEscalation: false
+        readOnlyRootFilesystem: true
+        capabilities:
+          drop: ["ALL"]
+      command: ["/bin/sh", "-c"]
+      args:
+        - |
+          set -eu
+          BASE="http://{{ include "prima-api.fullname" . }}:{{ .Values.service.port }}"
+
+          echo "==> liveness"
+          curl -fsS "$BASE/health/live"
+
+          echo "==> readiness (proves DynamoDB + S3 are reachable from the pod)"
+          curl -fsS "$BASE/health/ready"
+
+          echo "==> GET /users must return a JSON array"
+          curl -fsS "$BASE/users" | grep -q '^\[' || {
+            echo "unexpected payload"; exit 1; }
+
+          echo "==> OK"

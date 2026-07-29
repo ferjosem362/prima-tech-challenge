@@ -1,0 +1,188 @@
+# ---------------------------------------------------------------------------
+# Default values. Production-shaped; override per environment with
+# values-localstack.yaml / values-eks.yaml.
+# ---------------------------------------------------------------------------
+
+replicaCount: 2 # ignored when autoscaling.enabled=true
+
+image:
+  repository: ghcr.io/ferjosem362/prima-tech-challenge
+  # Empty => Chart.appVersion. CI overrides it with the immutable digest/SHA.
+  tag: ""
+  pullPolicy: IfNotPresent
+
+imagePullSecrets: []
+nameOverride: ""
+fullnameOverride: ""
+
+serviceAccount:
+  create: true
+  name: "" # defaults to the release fullname
+  # IRSA: the role ARN produced by `terraform output app_role_arn`.
+  # eks.amazonaws.com/role-arn: arn:aws:iam::123456789012:role/prima-tech-challenge-app
+  annotations: {}
+  # Pods do not talk to the Kubernetes API, so the SA token is not mounted.
+  automountServiceAccountToken: false
+
+# --- Application configuration (rendered into a ConfigMap) -----------------
+app:
+  environment: production
+  logLevel: INFO
+  debugErrors: false
+  maxAvatarBytes: 2097152
+  defaultPageSize: 50
+  extraEnv: [] # [{name: FOO, value: "bar"}]
+
+aws:
+  region: us-east-1
+  # Non-empty only for LocalStack/MinIO.
+  endpointUrl: ""
+  dynamodbTable: users
+  s3Bucket: prima-tech-challenge
+  # Public base URL for avatar_url (a CloudFront domain in production).
+  s3PublicBaseUrl: ""
+  staticCredentials:
+    # LAST RESORT — only for local clusters pointed at LocalStack.
+    # On EKS use IRSA (or EKS Pod Identity) and leave this disabled.
+    enabled: false
+    accessKeyId: ""
+    secretAccessKey: ""
+    existingSecret: "" # reference a pre-existing Secret instead
+
+service:
+  type: ClusterIP
+  port: 80
+  targetPort: 8000
+  annotations: {}
+
+ingress:
+  enabled: false
+  className: alb
+  annotations: {}
+  hosts:
+    - host: prima-api.example.com
+      paths:
+        - path: /
+          pathType: Prefix
+  tls: []
+
+# Requests are what the scheduler and the HPA use; the CPU limit is left unset
+# on purpose, since CFS throttling on a latency-sensitive API does more harm
+# than the noisy-neighbour risk it prevents. Memory IS limited (it is
+# incompressible: without a limit the pod can OOM the whole node).
+resources:
+  requests:
+    cpu: 100m
+    memory: 192Mi
+  limits:
+    memory: 384Mi
+
+autoscaling:
+  enabled: true
+  minReplicas: 2
+  maxReplicas: 10
+  targetCPUUtilizationPercentage: 70
+  targetMemoryUtilizationPercentage: 80
+  behavior:
+    scaleUp:
+      # React fast to traffic spikes...
+      stabilizationWindowSeconds: 30
+      policies:
+        - type: Percent
+          value: 100
+          periodSeconds: 30
+    scaleDown:
+      # ...but shrink slowly, to avoid flapping on a bursty workload.
+      stabilizationWindowSeconds: 300
+      policies:
+        - type: Pods
+          value: 1
+          periodSeconds: 60
+
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1 # voluntary evictions can never take the service to zero
+
+# --- Health probes ---------------------------------------------------------
+# startup  -> gives a slow cold start room without loosening liveness
+# liveness -> /health/live never touches AWS, so a DynamoDB blip cannot cause
+#             a restart storm
+# readiness-> /health/ready checks table + bucket, so a broken pod is pulled
+#             out of the Service endpoints instead of failing user requests
+probes:
+  startup:
+    enabled: true
+    path: /health/live
+    periodSeconds: 3
+    failureThreshold: 20
+  liveness:
+    enabled: true
+    path: /health/live
+    initialDelaySeconds: 0
+    periodSeconds: 10
+    timeoutSeconds: 2
+    failureThreshold: 3
+  readiness:
+    enabled: true
+    path: /health/ready
+    initialDelaySeconds: 3
+    periodSeconds: 10
+    timeoutSeconds: 3
+    failureThreshold: 3
+    successThreshold: 1
+
+# --- Security --------------------------------------------------------------
+# Compliant with the Pod Security Standard "restricted" profile.
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 1000
+  runAsGroup: 1000
+  fsGroup: 1000
+  seccompProfile:
+    type: RuntimeDefault
+
+securityContext:
+  allowPrivilegeEscalation: false
+  privileged: false
+  readOnlyRootFilesystem: true
+  capabilities:
+    drop: ["ALL"]
+
+# --- Scheduling & lifecycle ------------------------------------------------
+# Spread replicas across zones so losing one AZ does not take the service down.
+topologySpreadConstraints:
+  - maxSkew: 1
+    topologyKey: topology.kubernetes.io/zone
+    whenUnsatisfiable: ScheduleAnyway
+    labelSelector:
+      matchLabels: {} # filled in by the template with the selector labels
+
+nodeSelector: {}
+tolerations: []
+affinity: {}
+priorityClassName: ""
+
+terminationGracePeriodSeconds: 30
+# Small pause before SIGTERM so the endpoint is removed from every kube-proxy /
+# load balancer before the process stops accepting connections. Without it,
+# rolling updates drop a handful of in-flight requests.
+preStopSleepSeconds: 5
+
+deploymentStrategy:
+  type: RollingUpdate
+  rollingUpdate:
+    maxSurge: 1
+    maxUnavailable: 0 # never lose capacity during a rollout
+
+networkPolicy:
+  enabled: false
+  # Default-deny egress except DNS and HTTPS to the AWS APIs.
+  allowedEgressPorts: [443, 53]
+  ingressFromNamespaces: []
+
+serviceMonitor:
+  enabled: false # requires the Prometheus Operator CRDs
+  interval: 30s
+
+podAnnotations: {}
+podLabels: {}

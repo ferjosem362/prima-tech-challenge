@@ -1,0 +1,139 @@
+# ---------------------------------------------------------------------------
+# CD — promote an immutable artifact to the cluster.
+#
+# Triggered by a semver tag. It never rebuilds the code: it re-tags the image
+# that CI already built, scanned and signed, so what runs in production is
+# byte-for-byte what passed the gate.
+#
+# The deploy job is opt-in (repository variable DEPLOY_ENABLED=true) because
+# the challenge explicitly says not to create a real EKS cluster: without it,
+# the pipeline stops after publishing the release artifacts.
+# ---------------------------------------------------------------------------
+name: cd
+
+on:
+  push:
+    tags: ["v*.*.*"]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Version to deploy (e.g. v1.2.3)
+        required: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cd-production # never two deployments at once
+  cancel-in-progress: false
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+  CHART_PATH: deploy/helm/prima-api
+
+jobs:
+  release:
+    name: Publish image & chart
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # create the GitHub release
+      packages: write
+      id-token: write
+    outputs:
+      version: ${{ steps.version.outputs.value }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Resolve version
+        id: version
+        run: |
+          VERSION="${{ github.event.inputs.version || github.ref_name }}"
+          echo "value=${VERSION#v}" >> "$GITHUB_OUTPUT"
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Promote the image built by CI
+        # `imagetools create` copies the manifest, so the digest is preserved:
+        # the release tag points at the exact bytes that were tested.
+        run: |
+          docker buildx imagetools create \
+            --tag "${REGISTRY}/${IMAGE_NAME}:${{ steps.version.outputs.value }}" \
+            --tag "${REGISTRY}/${IMAGE_NAME}:latest" \
+            "${REGISTRY}/${IMAGE_NAME}:sha-${{ github.sha }}"
+
+      - uses: azure/setup-helm@v4
+        with:
+          version: v3.16.2
+
+      - name: Package and push the chart as an OCI artifact
+        run: |
+          helm package "${CHART_PATH}" \
+            --version "${{ steps.version.outputs.value }}" \
+            --app-version "${{ steps.version.outputs.value }}"
+          helm push "prima-api-${{ steps.version.outputs.value }}.tgz" \
+            "oci://${REGISTRY}/${{ github.repository_owner }}/charts"
+
+      - name: Create the GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+
+  deploy:
+    name: Deploy to EKS
+    needs: release
+    runs-on: ubuntu-latest
+    # Opt-in guard: no cluster in the challenge, so this stays skipped.
+    if: vars.DEPLOY_ENABLED == 'true'
+    # A protected environment adds manual approval and scopes the secrets.
+    environment:
+      name: production
+      url: https://prima-api.example.com/docs
+    permissions:
+      contents: read
+      id-token: write # OIDC -> AWS, no long-lived access keys
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Assume the deployment role (keyless)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+          role-session-name: gha-deploy-${{ github.run_id }}
+
+      - name: Fetch kubeconfig
+        run: |
+          aws eks update-kubeconfig \
+            --name "${{ vars.EKS_CLUSTER_NAME }}" \
+            --region "${{ vars.AWS_REGION }}"
+
+      - uses: azure/setup-helm@v4
+        with:
+          version: v3.16.2
+
+      - name: Deploy
+        run: |
+          helm upgrade --install prima-api "${CHART_PATH}" \
+            --namespace "${{ vars.K8S_NAMESPACE }}" --create-namespace \
+            -f "${CHART_PATH}/values-eks.yaml" \
+            --set image.repository="${REGISTRY}/${IMAGE_NAME}" \
+            --set image.tag="${{ needs.release.outputs.version }}" \
+            --set aws.region="${{ vars.AWS_REGION }}" \
+            --set serviceAccount.annotations."eks\.amazonaws\.com/role-arn"="${{ secrets.AWS_APP_ROLE_ARN }}" \
+            --atomic --wait --timeout 5m
+          # --atomic is the automatic rollback: if the new pods never turn
+          # ready, Helm restores the previous release and the job fails loudly.
+
+      - name: Verify the release
+        run: |
+          helm test prima-api --namespace "${{ vars.K8S_NAMESPACE }}"
+          kubectl get pods -n "${{ vars.K8S_NAMESPACE }}" -o wide
+
+      - name: Roll back on failure
+        if: failure()
+        run: helm rollback prima-api --namespace "${{ vars.K8S_NAMESPACE }}" || true
