@@ -3,7 +3,7 @@
 # ---------- Stage 1: build the dependency layer ---------------------------
 # Wheels are compiled once here and only the resulting virtualenv is copied
 # into the runtime image, which keeps compilers out of the final artifact.
-FROM python:3.12-slim AS builder
+FROM python:3.14-slim AS builder
 
 ENV PIP_NO_CACHE_DIR=1 \
     PIP_DISABLE_PIP_VERSION_CHECK=1
@@ -17,7 +17,7 @@ COPY requirements.txt .
 RUN pip install --upgrade pip && pip install -r requirements.txt
 
 # ---------- Stage 2: runtime ---------------------------------------------
-FROM python:3.12-slim AS runtime
+FROM python:3.14-slim AS runtime
 
 ARG APP_VERSION=1.0.0
 ARG VCS_REF=unknown
