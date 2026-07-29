@@ -57,6 +57,21 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Wait for the CI-built image
+        # CD promotes the exact digest CI tested rather than rebuilding, so the
+        # source tag has to exist first. Pushing a tag seconds after its commit
+        # can outrun the ci workflow, hence a retry instead of an instant
+        # failure — and a clear error if it never shows up.
+        run: |
+          SRC="${REGISTRY}/${IMAGE_NAME}:sha-${{ github.sha }}"
+          for i in $(seq 1 40); do
+            if docker buildx imagetools inspect "$SRC" >/dev/null 2>&1; then
+              echo "found $SRC"; exit 0
+            fi
+            echo "waiting for $SRC ($i/40)"; sleep 15
+          done
+          echo "::error::$SRC was never published — check that the ci workflow is green for this commit."
+          exit 1
       - name: Promote the image built by CI
         # `imagetools create` copies the manifest, so the digest is preserved:
         # the release tag points at the exact bytes that were tested.
