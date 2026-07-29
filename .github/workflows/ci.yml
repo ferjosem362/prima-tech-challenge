@@ -95,16 +95,25 @@ jobs:
           trivy --version
 
       - name: Dependency & filesystem scan (Trivy)
-        # --exit-code 1 makes this the actual gate: a HIGH/CRITICAL finding
-        # fails the build here, independently of whether the SARIF upload
-        # below happens to work.
+        # Two passes over an already-cached DB. SARIF goes to a file and prints
+        # nothing, so a single SARIF pass would fail the build without showing
+        # what it found. The table pass is the gate and is what a developer
+        # actually reads in the log.
+        #
+        # --skip-dirs matters too: a local .venv or .terraform holds a
+        # dependency's own test fixtures (moto ships private keys) and vendored
+        # data files. None of it is ours, none of it is in git, and scanning it
+        # buries real findings in noise.
         run: |
-          trivy fs . \
-            --scanners vuln,secret,misconfig \
-            --severity HIGH,CRITICAL \
-            --ignore-unfixed \
-            --exit-code 1 \
+          SCAN_ARGS="--scanners vuln,secret,misconfig
+                     --severity HIGH,CRITICAL
+                     --ignore-unfixed
+                     --skip-dirs .venv,.terraform,htmlcov,node_modules"
+
+          trivy fs . $SCAN_ARGS --exit-code 0 \
             --format sarif --output trivy-fs.sarif
+
+          trivy fs . $SCAN_ARGS --exit-code 1 --format table
 
       - name: Upload Trivy SARIF
         # Best-effort on purpose: code scanning requires GitHub Advanced
