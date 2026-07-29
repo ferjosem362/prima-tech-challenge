@@ -1,0 +1,24 @@
+# Trivy exceptions.
+#
+# Every entry carries a reason. An undocumented ignore is indistinguishable
+# from an oversight, and reviewing this file should be enough to understand
+# which risks were accepted and why.
+
+# AWS-0132 — "Bucket does not encrypt data with a customer managed key."
+#
+# Accepted, deliberately.
+#
+# The bucket holds avatar images that are served publicly by design: the
+# objects contain no PII and no regulated data, and their keys are random
+# UUIDs so they leak nothing about the users either. SSE-S3 (AES256) already
+# provides encryption at rest and is enabled unconditionally.
+#
+# A customer managed key would add key policy management, rotation and a
+# monthly cost without changing the risk profile of public images. The
+# trade-off would flip immediately if this bucket ever stored anything beyond
+# public avatars — revisit then.
+#
+# Note the bucket is NOT public: access is granted by policy only, public
+# access is fully blocked, and avatars are intended to be served through
+# CloudFront with an Origin Access Control.
+AWS-0132

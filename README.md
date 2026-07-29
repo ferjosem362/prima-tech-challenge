@@ -473,6 +473,18 @@ them from the standard chain (env, shared config, instance role, IRSA).
 
 ---
 
+## Accepted risks
+
+Security tooling findings are either fixed or accepted in writing — never
+silenced. The current exceptions live in [`.trivyignore`](.trivyignore) and
+`skip_check` in the `iac` job, each with its rationale:
+
+| Finding | Decision |
+| ------- | -------- |
+| `AWS-0132` — bucket not encrypted with a customer managed key | Accepted. Public avatar images, no PII, random UUID keys; SSE-S3 already encrypts at rest. A CMK would add key policy, rotation and cost without changing the risk profile. Revisit if the bucket ever holds anything else |
+
+---
+
 ## Known limits and next steps
 
 - **`GET /users` uses `Scan`**, which is O(table). Fine at this scale and already
