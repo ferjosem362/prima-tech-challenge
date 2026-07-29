@@ -107,7 +107,7 @@ spec:
               # Endpoint removal and SIGTERM race each other; this pause lets
               # every proxy stop sending traffic before the server shuts down.
               exec:
-                command: ["sleep", {{ .Values.preStopSleepSeconds | quote }}]
+                command: ["sleep", {{ .Values.preStopSleepSeconds | int64 | quote }}]
           resources:
             {{- toYaml .Values.resources | nindent 12 }}
           volumeMounts:

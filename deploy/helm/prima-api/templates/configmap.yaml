@@ -10,8 +10,11 @@ data:
   ENVIRONMENT: {{ .Values.app.environment | quote }}
   LOG_LEVEL: {{ .Values.app.logLevel | quote }}
   DEBUG_ERRORS: {{ .Values.app.debugErrors | quote }}
-  MAX_AVATAR_BYTES: {{ .Values.app.maxAvatarBytes | quote }}
-  DEFAULT_PAGE_SIZE: {{ .Values.app.defaultPageSize | quote }}
+  # `int64` before `quote` is not decoration: Helm parses YAML numbers as
+  # float64, so a bare `quote` renders 2097152 as "2.097152e+06" and the app
+  # dies at startup failing to parse it as an integer.
+  MAX_AVATAR_BYTES: {{ .Values.app.maxAvatarBytes | int64 | quote }}
+  DEFAULT_PAGE_SIZE: {{ .Values.app.defaultPageSize | int64 | quote }}
   AWS_REGION: {{ .Values.aws.region | quote }}
   DYNAMODB_TABLE: {{ .Values.aws.dynamodbTable | quote }}
   S3_BUCKET: {{ .Values.aws.s3Bucket | quote }}
