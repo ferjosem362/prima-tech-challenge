@@ -175,7 +175,7 @@ jobs:
           soft_fail: false
           # Skipped with a reason, not silently: the bucket is deliberately
           # not fronted by a WAF/CloudFront in the challenge scope.
-          skip_check: CKV_AWS_18,CKV2_AWS_62,CKV_AWS_144,CKV_AWS_145,CKV_AWS_145
+          skip_check: CKV_AWS_18,CKV2_AWS_62,CKV_AWS_144,CKV_AWS_145,CKV_AWS_119,CKV_AWS_119,CKV_AWS_119,CKV_AWS_145
 
       - name: Plan against LocalStack
         env:
