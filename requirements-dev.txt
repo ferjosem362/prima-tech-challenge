@@ -1,6 +1,6 @@
 -r requirements.txt
 
-pytest==9.0.3
+pytest==9.1.1
 pytest-cov>=6.0.0
 anyio==4.7.0                # provides the pytest.mark.anyio plugin
 httpx==0.28.1               # required by fastapi.testclient
