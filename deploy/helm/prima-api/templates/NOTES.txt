@@ -1,0 +1,31 @@
+{{ .Chart.Name }} {{ .Chart.AppVersion }} deployed as "{{ .Release.Name }}" in namespace "{{ .Release.Namespace }}".
+
+Image:      {{ include "prima-api.image" . }}
+Replicas:   {{ if .Values.autoscaling.enabled }}{{ .Values.autoscaling.minReplicas }}-{{ .Values.autoscaling.maxReplicas }} (HPA){{ else }}{{ .Values.replicaCount }} (fixed){{ end }}
+AWS:        table={{ .Values.aws.dynamodbTable }} bucket={{ .Values.aws.s3Bucket }}{{ with .Values.aws.endpointUrl }} endpoint={{ . }}{{ end }}
+Auth:       {{ if .Values.aws.staticCredentials.enabled }}static credentials (LOCAL ONLY){{ else }}IRSA / pod identity{{ end }}
+
+1. Wait for the rollout:
+   kubectl rollout status deploy/{{ include "prima-api.fullname" . }} -n {{ .Release.Namespace }}
+
+2. Verify it end to end:
+   helm test {{ .Release.Name }} -n {{ .Release.Namespace }}
+
+3. Reach the API:
+{{- if .Values.ingress.enabled }}
+   https://{{ (first .Values.ingress.hosts).host }}/docs
+{{- else }}
+   kubectl port-forward -n {{ .Release.Namespace }} svc/{{ include "prima-api.fullname" . }} 8000:{{ .Values.service.port }}
+   open http://localhost:8000/docs
+{{- end }}
+
+4. Create a user:
+   curl -X POST http://localhost:8000/user \
+     -F "name=Test User" -F "email=test-user@prima.it" \
+     -F "avatar=@avatar.png;type=image/png"
+
+{{- if .Values.aws.staticCredentials.enabled }}
+
+WARNING: static AWS credentials are enabled. Acceptable against LocalStack,
+never on EKS — use IRSA there (serviceAccount.annotations."eks.amazonaws.com/role-arn").
+{{- end }}

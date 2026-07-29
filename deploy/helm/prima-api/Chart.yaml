@@ -1,0 +1,17 @@
+apiVersion: v2
+name: prima-api
+description: User API backed by DynamoDB and S3 — deployment, scaling and health.
+type: application
+
+# version    -> the chart's own version (bumped on any template change)
+# appVersion -> the application release it defaults to deploying
+version: 1.0.0
+appVersion: "1.0.0"
+
+kubeVersion: ">=1.27.0-0"
+
+keywords: [api, fastapi, dynamodb, s3, irsa]
+maintainers:
+  - name: Prima Tech Challenge
+sources:
+  - https://github.com/ferjosem362/prima-tech-challenge

@@ -1,0 +1,18 @@
+{{- if .Values.serviceMonitor.enabled }}
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: {{ include "prima-api.fullname" . }}
+  labels:
+    {{- include "prima-api.labels" . | nindent 4 }}
+spec:
+  # Requires the Prometheus Operator CRDs; disabled by default so the chart
+  # installs cleanly on a bare cluster.
+  selector:
+    matchLabels:
+      {{- include "prima-api.selectorLabels" . | nindent 6 }}
+  endpoints:
+    - port: http
+      path: /metrics
+      interval: {{ .Values.serviceMonitor.interval }}
+{{- end }}

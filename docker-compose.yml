@@ -1,0 +1,74 @@
+# One command for the whole local stack: LocalStack (DynamoDB + S3), a one-shot
+# provisioner and the API itself.
+#
+# For the minikube flow the pods must reach LocalStack from outside the host's
+# loopback, hence GATEWAY_LISTEN:
+#   GATEWAY_LISTEN=0.0.0.0:4566 docker compose up -d localstack
+services:
+  localstack:
+    image: localstack/localstack:3.8
+    environment:
+      SERVICES: s3,dynamodb,iam,sts,kms
+      DEBUG: "0"
+      # Defaults to loopback-only; overridden for cluster access.
+      GATEWAY_LISTEN: ${GATEWAY_LISTEN:-0.0.0.0:4566}
+      PERSISTENCE: "0"
+      EAGER_SERVICE_LOADING: "1"
+    ports:
+      - "4566:4566"
+    volumes:
+      # Lets LocalStack spawn its own helper containers when needed.
+      - /var/run/docker.sock:/var/run/docker.sock
+    healthcheck:
+      test: ["CMD", "curl", "-fs", "http://localhost:4566/_localstack/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  # Creates the table and the bucket, then exits. The API waits for it to
+  # complete successfully, so there is no "table not found" race on first boot.
+  provisioner:
+    image: amazon/aws-cli:2.17.0
+    depends_on:
+      localstack:
+        condition: service_healthy
+    environment:
+      AWS_ACCESS_KEY_ID: test
+      AWS_SECRET_ACCESS_KEY: test
+      AWS_DEFAULT_REGION: us-east-1
+      AWS_ENDPOINT_URL: http://localstack:4566
+      DYNAMODB_TABLE: ${DYNAMODB_TABLE:-users}
+      S3_BUCKET: ${S3_BUCKET:-prima-tech-challenge}
+    entrypoint: ["/bin/sh", "/scripts/bootstrap_local.sh"]
+    volumes:
+      - ./scripts:/scripts:ro
+
+  api:
+    build:
+      context: .
+      args:
+        APP_VERSION: ${APP_VERSION:-1.0.0}
+    image: prima-tech-challenge:local
+    depends_on:
+      provisioner:
+        condition: service_completed_successfully
+    environment:
+      ENVIRONMENT: local
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      AWS_ENDPOINT_URL: http://localstack:4566
+      AWS_ACCESS_KEY_ID: test
+      AWS_SECRET_ACCESS_KEY: test
+      AWS_REGION: us-east-1
+      DYNAMODB_TABLE: ${DYNAMODB_TABLE:-users}
+      S3_BUCKET: ${S3_BUCKET:-prima-tech-challenge}
+      # LocalStack serves the bucket on its own endpoint, not on amazonaws.com,
+      # so avatar_url must point there to actually be fetchable.
+      S3_PUBLIC_BASE_URL: http://localhost:4566/${S3_BUCKET:-prima-tech-challenge}
+    ports:
+      - "8000:8000"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/health/live').status==200 else 1)"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 10s

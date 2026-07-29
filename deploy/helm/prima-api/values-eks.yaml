@@ -1,0 +1,42 @@
+# Real EKS overlay. Feed it the Terraform outputs:
+#   terraform output -raw helm_values > values.generated.yaml
+#   helm upgrade --install prima-api deploy/helm/prima-api \
+#     -f deploy/helm/prima-api/values-eks.yaml -f values.generated.yaml
+replicaCount: 3
+
+serviceAccount:
+  create: true
+  annotations:
+    eks.amazonaws.com/role-arn: arn:aws:iam::000000000000:role/prima-tech-challenge-app
+
+app:
+  environment: production
+  logLevel: INFO
+  debugErrors: false
+
+aws:
+  region: eu-west-1
+  endpointUrl: "" # real AWS endpoints
+  staticCredentials:
+    enabled: false # IRSA only: no keys anywhere in the cluster
+
+autoscaling:
+  enabled: true
+  minReplicas: 3
+  maxReplicas: 20
+
+ingress:
+  enabled: true
+  className: alb
+  annotations:
+    alb.ingress.kubernetes.io/scheme: internet-facing
+    alb.ingress.kubernetes.io/target-type: ip
+    alb.ingress.kubernetes.io/healthcheck-path: /health/ready
+    alb.ingress.kubernetes.io/listen-ports: '[{"HTTPS":443}]'
+    alb.ingress.kubernetes.io/ssl-redirect: "443"
+
+networkPolicy:
+  enabled: true
+
+serviceMonitor:
+  enabled: true

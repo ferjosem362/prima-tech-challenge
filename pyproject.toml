@@ -1,0 +1,44 @@
+[project]
+name = "prima-tech-challenge"
+version = "1.0.0"
+description = "User API backed by DynamoDB and S3"
+requires-python = ">=3.11"
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+# A pragmatic, high-signal rule set: pycodestyle, pyflakes, isort, bugbear,
+# comprehensions, pyupgrade, security (bandit) and simplification.
+select = ["E", "F", "I", "B", "C4", "UP", "S", "SIM", "N", "RUF"]
+ignore = ["S101"]  # assert is the point of a test suite
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["S105", "S106"]  # hard-coded fake credentials are intentional
+
+[tool.mypy]
+python_version = "3.11"
+strict = true
+plugins = ["pydantic.mypy"]
+warn_unused_ignores = true
+disallow_untyped_defs = true
+
+[[tool.mypy.overrides]]
+module = ["boto3.*", "botocore.*", "moto.*"]
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q --strict-markers --cov=app --cov-report=term-missing"
+filterwarnings = [
+    # A deprecation in our own code is a bug we want to fix now, not later.
+    "error::DeprecationWarning",
+    # Third-party deprecations are not ours to fix, and failing the suite over
+    # them just couples our CI to someone else's release schedule. moto still
+    # calls datetime.utcnow() internally.
+    'ignore:datetime\.datetime\.utcnow\(\) is deprecated:DeprecationWarning',
+    "ignore::DeprecationWarning:moto.*",
+    "ignore::DeprecationWarning:botocore.*",
+    "ignore::DeprecationWarning:boto3.*",
+]

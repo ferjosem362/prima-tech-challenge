@@ -1,0 +1,19 @@
+{{- if .Values.podDisruptionBudget.enabled }}
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "prima-api.fullname" . }}
+  labels:
+    {{- include "prima-api.labels" . | nindent 4 }}
+spec:
+  # Protects availability during voluntary disruptions (node drains, cluster
+  # upgrades, karpenter consolidation) — not against node crashes.
+  {{- if .Values.podDisruptionBudget.minAvailable }}
+  minAvailable: {{ .Values.podDisruptionBudget.minAvailable }}
+  {{- else }}
+  maxUnavailable: {{ .Values.podDisruptionBudget.maxUnavailable }}
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "prima-api.selectorLabels" . | nindent 6 }}
+{{- end }}

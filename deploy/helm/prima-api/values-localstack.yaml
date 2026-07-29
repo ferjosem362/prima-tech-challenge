@@ -1,0 +1,48 @@
+# Local cluster (minikube/kind) pointed at a LocalStack running on the host.
+# Start LocalStack bound to 0.0.0.0 so the pods can reach it:
+#   GATEWAY_LISTEN=0.0.0.0:4566 docker compose up -d localstack
+#
+#   helm upgrade --install prima-api deploy/helm/prima-api \
+#     -f deploy/helm/prima-api/values-localstack.yaml \
+#     --set aws.endpointUrl=http://host.minikube.internal:4566
+image:
+  repository: prima-tech-challenge
+  tag: local
+  pullPolicy: Never # use the image loaded into the cluster's own daemon
+
+replicaCount: 1
+
+app:
+  environment: local
+  logLevel: DEBUG
+  debugErrors: true
+
+aws:
+  region: us-east-1
+  endpointUrl: http://host.minikube.internal:4566
+  dynamodbTable: users
+  s3Bucket: prima-tech-challenge
+  s3PublicBaseUrl: http://localhost:4566/prima-tech-challenge
+  staticCredentials:
+    # LocalStack accepts any credentials; IRSA does not exist off-EKS.
+    enabled: true
+    accessKeyId: test
+    secretAccessKey: test
+
+# A single-node cluster has no zones and little headroom.
+autoscaling:
+  enabled: true
+  minReplicas: 1
+  maxReplicas: 3
+
+podDisruptionBudget:
+  enabled: false
+
+topologySpreadConstraints: []
+
+resources:
+  requests:
+    cpu: 50m
+    memory: 128Mi
+  limits:
+    memory: 384Mi

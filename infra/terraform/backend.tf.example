@@ -1,0 +1,11 @@
+# Rename to backend.tf for any shared/real environment.
+# Local state is fine for a LocalStack demo, never for a team.
+terraform {
+  backend "s3" {
+    bucket       = "my-tfstate-bucket"
+    key          = "prima-tech-challenge/terraform.tfstate"
+    region       = "eu-west-1"
+    encrypt      = true
+    use_lockfile = true # S3-native locking (Terraform >= 1.10), no DynamoDB table needed
+  }
+}
