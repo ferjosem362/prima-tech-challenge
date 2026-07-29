@@ -73,6 +73,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
+      actions: read # upload-sarif reads the workflow run to attach results
       security-events: write # upload SARIF to the Security tab
     steps:
       - uses: actions/checkout@v4
@@ -94,15 +95,23 @@ jobs:
           trivy --version
 
       - name: Dependency & filesystem scan (Trivy)
+        # --exit-code 1 makes this the actual gate: a HIGH/CRITICAL finding
+        # fails the build here, independently of whether the SARIF upload
+        # below happens to work.
         run: |
           trivy fs . \
             --scanners vuln,secret,misconfig \
             --severity HIGH,CRITICAL \
             --ignore-unfixed \
+            --exit-code 1 \
             --format sarif --output trivy-fs.sarif
 
       - name: Upload Trivy SARIF
+        # Best-effort on purpose: code scanning requires GitHub Advanced
+        # Security on private repositories, so this upload is a nice-to-have
+        # (results in the Security tab) and must never be what fails CI.
         if: always()
+        continue-on-error: true
         uses: github/codeql-action/upload-sarif@v3
         with:
           sarif_file: trivy-fs.sarif
