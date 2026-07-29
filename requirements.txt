@@ -1,9 +1,9 @@
 # Runtime dependencies (pin ranges: reproducible builds, still patchable).
-fastapi==0.115.6
-uvicorn[standard]==0.34.0
-pydantic==2.10.4
-pydantic-settings==2.7.0
-email-validator==2.2.0      # backs pydantic's EmailStr
-python-multipart==0.0.31    # multipart/form-data parsing for the avatar upload
-boto3==1.35.90
-anyio==4.7.0
+fastapi==0.140.13
+uvicorn[standard]==0.52.0
+pydantic==2.13.4
+pydantic-settings==2.14.2
+email-validator==2.3.0      # backs pydantic's EmailStr
+python-multipart==0.0.32    # multipart/form-data parsing for the avatar upload
+boto3==1.43.58
+anyio==4.14.2
