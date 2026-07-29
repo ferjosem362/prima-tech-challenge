@@ -137,6 +137,12 @@ variable "enable_github_oidc" {
   default     = false
 }
 
+variable "eks_cluster_name" {
+  description = "Cluster the GitHub deployment role may describe. Empty = any cluster in the account."
+  type        = string
+  default     = ""
+}
+
 variable "github_repository" {
   description = "owner/repo allowed to assume the deployment role."
   type        = string

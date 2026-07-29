@@ -22,6 +22,17 @@ locals {
   # projected token; matching it exactly is what makes IRSA least-privilege.
   irsa_subject = "system:serviceaccount:${var.kubernetes_namespace}:${var.kubernetes_service_account}"
 
+  # Scoping DescribeCluster to an ARN instead of "*" is what turns this from a
+  # blanket grant into a least-privilege one. A wildcard cluster segment still
+  # confines the role to EKS in this account and region.
+  eks_cluster_arn = format(
+    "arn:%s:eks:%s:%s:cluster/%s",
+    local.partition,
+    var.aws_region,
+    local.account_id,
+    var.eks_cluster_name != "" ? var.eks_cluster_name : "*",
+  )
+
   common_tags = merge(
     {
       Project     = var.name_prefix

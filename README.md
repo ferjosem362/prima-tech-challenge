@@ -481,7 +481,8 @@ silenced. The current exceptions live in [`.trivyignore`](.trivyignore) and
 
 | Finding | Decision |
 | ------- | -------- |
-| `AWS-0132` — bucket not encrypted with a customer managed key | Accepted. Public avatar images, no PII, random UUID keys; SSE-S3 already encrypts at rest. A CMK would add key policy, rotation and cost without changing the risk profile. Revisit if the bucket ever holds anything else |
+| `AWS-0132` / `CKV_AWS_145` — bucket not encrypted with a customer managed key | Accepted. Public avatar images, no PII, random UUID keys; SSE-S3 already encrypts at rest. A CMK would add key policy, rotation and cost without changing the risk profile. Revisit if the bucket ever holds anything else |
+| `CKV_AWS_18`, `CKV_AWS_144`, `CKV2_AWS_62` — access logging, cross-region replication, WAF | Out of scope. Each is a production concern that would be addressed alongside CloudFront and a real traffic profile |
 
 ---
 

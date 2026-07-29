@@ -238,9 +238,13 @@ data "aws_iam_policy_document" "github_assume_role" {
 
 data "aws_iam_policy_document" "github_deploy" {
   statement {
-    sid       = "DescribeClusterForKubeconfig"
-    actions   = ["eks:DescribeCluster", "eks:ListClusters"]
-    resources = ["*"]
+    sid = "DescribeClusterForKubeconfig"
+    # `aws eks update-kubeconfig` calls DescribeCluster and nothing else.
+    # ListClusters was dropped: the workflow never needs it, and it is one of
+    # the actions AWS does not allow to be scoped to a resource — so keeping it
+    # would have forced "*" on the whole statement.
+    actions   = ["eks:DescribeCluster"]
+    resources = [local.eks_cluster_arn]
   }
 }
 
