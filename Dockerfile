@@ -14,7 +14,13 @@ ENV PATH="/opt/venv/bin:$PATH"
 
 # Copied on its own so the layer is cached until the dependencies change.
 COPY requirements.txt .
-RUN pip install --upgrade pip && pip install -r requirements.txt
+
+# pip is deliberately NOT upgraded here. The base image ships a known-good
+# version, whereas `pip install --upgrade pip` would pull whatever PyPI serves
+# on the day of the build — the exact non-reproducibility that pinning every
+# dependency in requirements.txt exists to prevent. (It is also what hadolint
+# flags as DL3013.) The long `--requirement` form documents the intent.
+RUN pip install --requirement requirements.txt
 
 # ---------- Stage 2: runtime ---------------------------------------------
 FROM python:3.12-slim AS runtime
