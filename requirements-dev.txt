@@ -1,7 +1,7 @@
 -r requirements.txt
 
-pytest==8.3.4
-pytest-cov==6.0.0
+pytest==9.0.3
+pytest-cov>=6.0.0
 anyio==4.7.0                # provides the pytest.mark.anyio plugin
 httpx==0.28.1               # required by fastapi.testclient
 moto[s3,dynamodb]==5.0.24   # in-process AWS emulation
