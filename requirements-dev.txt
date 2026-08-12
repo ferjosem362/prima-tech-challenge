@@ -5,6 +5,6 @@ pytest-cov==7.1.0
 anyio==4.14.2               # provides the pytest.mark.anyio plugin
 httpx==0.28.1               # required by fastapi.testclient
 moto[s3,dynamodb]==5.2.2    # in-process AWS emulation
-ruff==0.16.0                # linter + formatter
+ruff==0.16.2                # linter + formatter
 mypy==2.3.0
-types-boto3==1.43.58
+types-boto3==1.43.67
