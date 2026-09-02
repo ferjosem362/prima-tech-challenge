@@ -3,16 +3,16 @@
 # Exact pins: the same versions resolve on a laptop, in CI and in the image, so
 # a build is reproducible and an upgrade is a reviewable commit rather than a
 # surprise. Dependabot proposes the bumps; CI decides whether they land.
-fastapi==0.140.13
+fastapi==0.141.1
 # Pinned explicitly even though FastAPI pulls it in: starlette is where the
 # HTTP surface actually lives, and CVE-2025-62727 / CVE-2026-48818 /
 # CVE-2026-54283 were all fixed here. A transitive dependency on the request
 # path deserves a visible pin.
-starlette==1.3.1
-uvicorn[standard]==0.52.0
-pydantic==2.13.4
-pydantic-settings==2.14.2
+starlette==1.6.0
+uvicorn[standard]==0.52.4
+pydantic==2.13.5
+pydantic-settings==2.15.0
 email-validator==2.3.0      # backs pydantic's EmailStr
 python-multipart==0.0.32    # multipart/form-data parsing for the avatar upload
-boto3==1.43.58
+boto3==1.43.83
 anyio==4.14.2
